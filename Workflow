@@ -1,0 +1,121 @@
+import os
+import pandas as pd
+import numpy as np
+import json
+import psycopg2
+from pymongo import MongoClient
+import boto3
+import matplotlib.pyplot as plt
+
+# Directory Setup
+os.makedirs("data_generation", exist_ok=True)
+os.makedirs("etl_pipeline", exist_ok=True)
+os.makedirs("data_warehouse", exist_ok=True)
+os.makedirs("data_lake", exist_ok=True)
+os.makedirs("visualization", exist_ok=True)
+
+# 1. Data Generation
+def generate_data(num_records=100000):
+    data = []
+    for i in range(num_records):
+        record = {
+            "transaction_id": i,
+            "user_id": np.random.randint(1000, 9999),
+            "product_id": np.random.randint(100, 999),
+            "amount": round(np.random.uniform(5, 500), 2),
+            "timestamp": pd.Timestamp.now()
+        }
+        data.append(record)
+    return data
+
+with open("data_generation/transactions.json", "w") as f:
+    json.dump(generate_data(), f, indent=4)
+
+# 2. Data Warehouse Schema (DDL)
+DW_DDL = """
+CREATE TABLE transactions (
+    transaction_id INT PRIMARY KEY,
+    user_id INT,
+    product_id INT,
+    amount DECIMAL(10,2),
+    timestamp TIMESTAMP
+);
+"""
+
+# 3. ETL Process
+def etl_pipeline():
+    conn = psycopg2.connect("dbname=amazon_db user=admin password=admin")
+    cur = conn.cursor()
+    with open("data_generation/transactions.json") as f:
+        data = json.load(f)
+        for record in data:
+            cur.execute("INSERT INTO transactions VALUES (%s, %s, %s, %s, %s)",
+                        (record['transaction_id'], record['user_id'], record['product_id'], record['amount'], record['timestamp']))
+    conn.commit()
+    conn.close()
+
+# 4. Data Lake - MongoDB + AWS S3
+client = MongoClient("mongodb://localhost:27017/")
+db = client["amazon_data"]
+db.transactions.insert_many(generate_data(50000))
+
+s3 = boto3.client("s3")
+s3.upload_file("data_generation/transactions.json", "my-s3-bucket", "transactions.json")
+
+# 5. Visualization
+def visualize():
+    df = pd.DataFrame(generate_data(10000))
+    df['amount'].hist(bins=50)
+    plt.xlabel("Transaction Amount ($)")
+    plt.ylabel("Frequency")
+    plt.title("Transaction Amount Distribution")
+    plt.show()
+
+visualize()
+
+# 6. README Documentation
+README = """
+# EcomDataFlow
+
+EcomDataFlow is an end-to-end Amazon Ecommerce Information Management system that:
+- Generates synthetic transaction data
+- Stores data in a data warehouse
+- Implements an ETL pipeline
+- Loads data into a MongoDB and AWS S3 data lake
+- Provides basic data visualization
+
+## Setup Instructions
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/EcomDataFlow.git
+   ```
+2. Install dependencies:
+   ```bash
+   pip install pandas numpy psycopg2 pymongo boto3 matplotlib
+   ```
+3. Run data generation:
+   ```bash
+   python data_generation/generate_data.py
+   ```
+4. Set up the database and run ETL:
+   ```bash
+   python etl_pipeline/load_data.py
+   ```
+5. Visualize transaction data:
+   ```bash
+   python visualization/visualize.py
+   ```
+
+## Technologies Used
+- Python
+- PostgreSQL (Data Warehouse)
+- MongoDB (Data Lake)
+- AWS S3
+- Pandas & Matplotlib (Visualization)
+
+## Author
+Created by Your Name
+"""
+
+with open("README.md", "w") as f:
+    f.write(README)
